@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Encoding">
+    <file url="file://$PROJECT_DIR$/data/19.05-18.06 all utf8.csv" charset="windows-1251" />
+    <file url="file://$PROJECT_DIR$/data/19.05-18.06 all.csv" charset="windows-1251" />
+    <file url="file://$PROJECT_DIR$/data/19.05-18.06 recieved.csv" charset="windows-1251" />
+    <file url="file://$PROJECT_DIR$/data/result.csv" charset="windows-1251" />
+  </component>
+</project>
