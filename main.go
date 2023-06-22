@@ -2,7 +2,7 @@ package main
 
 import (
 	"callCenterReportMaker/entity"
-	"fmt"
+	"log"
 	"regexp"
 )
 
@@ -119,6 +119,9 @@ func main() {
 		SumToPay:                66215.50,
 	}
 
-	fmt.Println(report)
+	err := report.SaveAsXlsx("data/result.xlsx")
+	if err != nil {
+		log.Fatal(err)
+	}
 
 }
