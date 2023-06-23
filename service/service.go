@@ -3,6 +3,7 @@ package service
 import (
 	"callCenterReportMaker/entity"
 	"fmt"
+	"log"
 	"math"
 	"regexp"
 	"slices"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"time"
 )
+
+const debug = false
 
 type Service interface {
 	GetUniqTotalCallsCountPerCity(historyRecords []entity.HistoryRecord, dateFrom, dateTo time.Time) map[string]int
@@ -137,8 +140,15 @@ func (s *service) GetWeeklyReport(callsByOperators []entity.DatabaseStatistic, o
 	operatorReports := s.calculateOperatorsReport(databaseStatistics, departmentBonus, personalBonusPerOrder)
 	departmentPayment := s.calculateDepartmentPayment(operatorReports)
 	departmentPricePerOrder := s.calculateDepartmentPricePerOrder(totalOrdersCount, departmentPayment)
-	telephonyPayment := s.getFloat64FromConsole("Сколько заплатили за телефонию?")
-	smsPayment := s.getFloat64FromConsole("Сколько заплатили за СМС?")
+	var telephonyPayment, smsPayment float64
+	if !debug {
+		telephonyPayment = s.getFloat64FromConsole("Сколько заплатили за телефонию?")
+		smsPayment = s.getFloat64FromConsole("Сколько заплатили за СМС?")
+	} else {
+		telephonyPayment = 15698.67
+		smsPayment = 5000
+	}
+
 	totalExpenses := s.calculateTotalExpenses(departmentPayment, telephonyPayment, smsPayment)
 	totalPricePerOrder := s.calculateTotalPricePerOrder(totalOrdersCount, totalExpenses)
 	cityStatistics := s.calculateCityStatistics(orders, callHistory, dateFrom, dateTo)
@@ -156,13 +166,14 @@ func (s *service) GetWeeklyReport(callsByOperators []entity.DatabaseStatistic, o
 		SummaryDepartmentSalary: departmentPayment - departmentBonus,
 		SummaryDepartmentBonus:  departmentBonus,
 		SumToPay:                departmentPayment,
+		DateFrom:                dateFrom,
+		DateTo:                  dateTo,
 	}
 }
 
 func (s *service) isDateBetween(dateFrom, dateTo, date time.Time) bool {
 	return date == dateFrom || date.After(dateFrom) && date.Before(dateTo) || date == dateTo
 }
-
 func (s *service) getUniqCallsWithFilter(historyRecords []entity.HistoryRecord, filter func(record entity.HistoryRecord) bool) map[string]int {
 	uniqCallsMap := make(map[string]struct{})
 
@@ -184,13 +195,17 @@ func (s *service) getUniqCallsWithFilter(historyRecords []entity.HistoryRecord, 
 
 	return result
 }
-
 func (s *service) calculateBonus(databaseStatistics []entity.DatabaseStatistic) (totalBonus, personalBonusPerOrder float64) {
 	totalDepartmentStatistics := databaseStatistics[len(databaseStatistics)-1]
 	generalBonusPerOrder := s.calculateGeneralBonusPerOrder(totalDepartmentStatistics.Conversion)
 	if generalBonusPerOrder > 0 {
 		totalBonus = math.RoundToEven(generalBonusPerOrder * float64(totalDepartmentStatistics.OrdersCount))
-		personalBonusPerOrder = s.setPersonalBonusPerOrder(databaseStatistics, totalDepartmentStatistics.Conversion, generalBonusPerOrder, totalBonus)
+		if !debug {
+			personalBonusPerOrder = s.setPersonalBonusPerOrder(databaseStatistics, totalDepartmentStatistics.Conversion, generalBonusPerOrder, totalBonus)
+		} else {
+			personalBonusPerOrder = 19
+		}
+
 	}
 	return totalBonus, personalBonusPerOrder
 }
@@ -293,7 +308,7 @@ func (s *service) getFloat64FromConsole(message string) float64 {
 	var floatFromConsole float64
 	_, err := fmt.Scan(&floatFromConsole)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		floatFromConsole = s.getFloat64FromConsole(message)
 	}
 	return floatFromConsole
@@ -341,6 +356,8 @@ func (s *service) calculateCityStatistics(orders []entity.Orders, callHistory []
 			Conversion:        conversion,
 		})
 	}
+
+	sort.Slice(cityStatistics, func(i, j int) bool { return cityStatistics[i].UniqCallsTotal > cityStatistics[j].UniqCallsTotal })
 
 	cityStatistics = append(cityStatistics, entity.CityStatistic{
 		City:              "Итого",

@@ -4,6 +4,7 @@ import (
 	"github.com/plandem/xlsx"
 	"github.com/plandem/xlsx/format/styles"
 	"github.com/plandem/xlsx/types/options/column"
+	"time"
 )
 
 type WeeklyReport struct {
@@ -19,6 +20,7 @@ type WeeklyReport struct {
 	SummaryDepartmentSalary float64
 	SummaryDepartmentBonus  float64
 	SumToPay                float64
+	DateFrom, DateTo        time.Time
 }
 
 type OperatorReport struct {
@@ -43,8 +45,9 @@ type CityStatistic struct {
 
 func (r WeeklyReport) SaveAsXlsx(path string) error {
 	xl := xlsx.New()
+	dateLayout := "02.01"
 
-	sheet := xl.AddSheet("Weekly Report")
+	sheet := xl.AddSheet(r.DateFrom.Format(dateLayout) + " - " + r.DateTo.Format(dateLayout))
 
 	sheet.Col(0).SetOptions(options.New(options.Width(35)))
 	sheet.Col(1).SetOptions(options.New(options.Width(14)))

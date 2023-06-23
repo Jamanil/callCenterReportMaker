@@ -32,5 +32,5 @@ func (d *DatabaseStatistic) CalculateConversion() {
 }
 
 func (d DatabaseStatistic) String() string {
-	return fmt.Sprintf("%-25s %-7d %-7d %-7d %.4g%%", d.Operator, d.OrdersCount, d.UniqIncomingCalls, d.UniqOutgoingCalls, d.Conversion*100)
+	return fmt.Sprintf("%-20s %-7d %-7d %-7d %.4g%%", d.Operator, d.OrdersCount, d.UniqIncomingCalls, d.UniqOutgoingCalls, d.Conversion*100)
 }
