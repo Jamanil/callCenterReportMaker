@@ -4,64 +4,30 @@ import (
 	"callCenterReportMaker/entity"
 	"callCenterReportMaker/repository/database"
 	"callCenterReportMaker/service"
-	"callCenterReportMaker/tgBot"
 	"fmt"
-	"github.com/jasonlvhit/gocron"
+	"io"
 	"log"
 	"strings"
 	"time"
 )
 
 type controller struct {
-	srv                                  service.Service
-	db                                   database.Database
-	bot                                  tgBot.TelegramMessageSender
-	weekdayReportTime, weekendReportTime string
+	srv service.Service
+	db  database.Database
 }
-
 type Controller interface {
-	StartDailyReportSending()
-	MakeReport(dateFrom, dateTo time.Time) (entity.WeeklyReport, error)
+	MakeReport(dateFrom, dateTo time.Time, readWriter io.ReadWriter) (entity.WeeklyReport, error)
+	MakeWeeklyConversionStatistics() string
 }
 
-func New(srv service.Service, db database.Database, bot tgBot.TelegramMessageSender, weekdayReportTime, weekendReportTime string) Controller {
+func New(srv service.Service, db database.Database) Controller {
 	return controller{
-		srv:               srv,
-		db:                db,
-		bot:               bot,
-		weekdayReportTime: weekdayReportTime,
-		weekendReportTime: weekendReportTime,
+		srv: srv,
+		db:  db,
 	}
 }
 
-func (c controller) StartDailyReportSending() {
-
-	if err := gocron.Every(1).Monday().At(c.weekdayReportTime).Do(c.sendStat); err != nil {
-		log.Println(err)
-	}
-	if err := gocron.Every(1).Tuesday().At(c.weekdayReportTime).Do(c.sendStat); err != nil {
-		log.Println(err)
-	}
-	if err := gocron.Every(1).Wednesday().At(c.weekdayReportTime).Do(c.sendStat); err != nil {
-		log.Println(err)
-	}
-	if err := gocron.Every(1).Thursday().At(c.weekdayReportTime).Do(c.sendStat); err != nil {
-		log.Println(err)
-	}
-	if err := gocron.Every(1).Friday().At(c.weekdayReportTime).Do(c.sendStat); err != nil {
-		log.Println(err)
-	}
-	if err := gocron.Every(1).Saturday().At(c.weekendReportTime).Do(c.sendStat); err != nil {
-		log.Println(err)
-	}
-	if err := gocron.Every(1).Sunday().At(c.weekendReportTime).Do(c.sendStat); err != nil {
-		log.Println(err)
-	}
-
-	<-gocron.Start()
-}
-
-func (c controller) MakeReport(dateFrom, dateTo time.Time) (entity.WeeklyReport, error) {
+func (c controller) MakeReport(dateFrom, dateTo time.Time, readWriter io.ReadWriter) (entity.WeeklyReport, error) {
 	uniqCallsByOperators, err := c.db.GetUniqCallsByOperators(dateFrom, dateTo)
 	if err != nil {
 		return entity.WeeklyReport{}, err
@@ -76,10 +42,10 @@ func (c controller) MakeReport(dateFrom, dateTo time.Time) (entity.WeeklyReport,
 		return entity.WeeklyReport{}, err
 	}
 
-	weeklyReport := c.srv.GetWeeklyReport(uniqCallsByOperators, orders, callHistory, dateFrom, dateTo)
+	weeklyReport := c.srv.GetWeeklyReport(uniqCallsByOperators, orders, callHistory, dateFrom, dateTo, readWriter)
 	return weeklyReport, err
 }
-func (c controller) sendStat() {
+func (c controller) MakeWeeklyConversionStatistics() string {
 	year, month, day := time.Now().Date()
 
 	dateTo := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
@@ -97,10 +63,7 @@ func (c controller) sendStat() {
 
 	dbStats := c.srv.GetDatabaseStatistic(callsByOperator, orders)
 	message := dbStatPrettyString(dbStats, dateFrom, dateTo)
-	err = c.bot.SendPreformattedMessage(message)
-	if err != nil {
-		log.Println(err)
-	}
+	return message
 }
 
 func dbStatPrettyString(dbStats []entity.DatabaseStatistic, dateFrom, dateTo time.Time) string {
@@ -114,7 +77,9 @@ func dbStatPrettyString(dbStats []entity.DatabaseStatistic, dateFrom, dateTo tim
 
 	for i := 0; i < len(dbStats); i++ {
 		if i != len(dbStats)-2 {
-			strBuilder.WriteString(dbStats[i].String() + "\n")
+			if dbStats[i].OrdersCount != 0 || dbStats[i].UniqOutgoingCalls != 0 || dbStats[i].UniqIncomingCalls != 0 {
+				strBuilder.WriteString(dbStats[i].String() + "\n")
+			}
 		} else {
 			strBuilder.WriteString(fmt.Sprintf("%-20s %-7d\n", dbStats[i].Operator, dbStats[i].OrdersCount))
 		}

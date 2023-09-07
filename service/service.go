@@ -3,11 +3,13 @@ package service
 import (
 	"callCenterReportMaker/entity"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,7 +21,11 @@ type Service interface {
 	GetUniqReceivedCallsCountPerCity(historyRecords []entity.HistoryRecord, dateFrom, dateTo time.Time) map[string]int
 	GetUniqReceivedCallsByOperator(historyRecords []entity.HistoryRecord, dateFrom, dateTo time.Time) map[time.Time]map[string]int
 	GetDatabaseStatistic(callsByOperators []entity.DatabaseStatistic, orders []entity.Orders) []entity.DatabaseStatistic
-	GetWeeklyReport(callsByOperators []entity.DatabaseStatistic, orders []entity.Orders, callHistory []entity.HistoryRecord, dateFrom, dateTo time.Time) entity.WeeklyReport
+	GetWeeklyReport(callsByOperators []entity.DatabaseStatistic,
+		orders []entity.Orders,
+		callHistory []entity.HistoryRecord,
+		dateFrom, dateTo time.Time,
+		readWriter io.ReadWriter) entity.WeeklyReport
 }
 
 func New(citiesLineMap map[string]*regexp.Regexp, operatorsList []string, bonusMap map[float64]float64, orderCost, personalConversionGrade float64) Service {
@@ -132,18 +138,18 @@ func (s *service) GetDatabaseStatistic(callsByOperators []entity.DatabaseStatist
 }
 
 func (s *service) GetWeeklyReport(callsByOperators []entity.DatabaseStatistic, orders []entity.Orders,
-	callHistory []entity.HistoryRecord, dateFrom, dateTo time.Time) entity.WeeklyReport {
+	callHistory []entity.HistoryRecord, dateFrom, dateTo time.Time, readWriter io.ReadWriter) entity.WeeklyReport {
 
 	databaseStatistics := s.GetDatabaseStatistic(callsByOperators, orders)
 	totalOrdersCount := databaseStatistics[len(databaseStatistics)-1].OrdersCount
-	departmentBonus, personalBonusPerOrder := s.calculateBonus(databaseStatistics)
+	departmentBonus, personalBonusPerOrder := s.calculateBonus(databaseStatistics, readWriter)
 	operatorReports := s.calculateOperatorsReport(databaseStatistics, departmentBonus, personalBonusPerOrder)
 	departmentPayment := s.calculateDepartmentPayment(operatorReports)
 	departmentPricePerOrder := s.calculateDepartmentPricePerOrder(totalOrdersCount, departmentPayment)
 	var telephonyPayment, smsPayment float64
 	if !debug {
-		telephonyPayment = s.getFloat64FromConsole("Сколько заплатили за телефонию?")
-		smsPayment = s.getFloat64FromConsole("Сколько заплатили за СМС?")
+		telephonyPayment = s.getFloat64FromIO(readWriter, "Сколько заплатили за телефонию?")
+		smsPayment = s.getFloat64FromIO(readWriter, "Сколько заплатили за СМС?")
 	} else {
 		telephonyPayment = 15698.67
 		smsPayment = 5000
@@ -195,13 +201,13 @@ func (s *service) getUniqCallsWithFilter(historyRecords []entity.HistoryRecord, 
 
 	return result
 }
-func (s *service) calculateBonus(databaseStatistics []entity.DatabaseStatistic) (totalBonus, personalBonusPerOrder float64) {
+func (s *service) calculateBonus(databaseStatistics []entity.DatabaseStatistic, readWriter io.ReadWriter) (totalBonus, personalBonusPerOrder float64) {
 	totalDepartmentStatistics := databaseStatistics[len(databaseStatistics)-1]
 	generalBonusPerOrder := s.calculateGeneralBonusPerOrder(totalDepartmentStatistics.Conversion)
-	if generalBonusPerOrder > 0 {
+	if generalBonusPerOrder >= 0 {
 		totalBonus = math.RoundToEven(generalBonusPerOrder * float64(totalDepartmentStatistics.OrdersCount))
 		if !debug {
-			personalBonusPerOrder = s.setPersonalBonusPerOrder(databaseStatistics, totalDepartmentStatistics.Conversion, generalBonusPerOrder, totalBonus)
+			personalBonusPerOrder = s.setPersonalBonusPerOrder(databaseStatistics, totalDepartmentStatistics.Conversion, generalBonusPerOrder, totalBonus, readWriter)
 		} else {
 			personalBonusPerOrder = 19
 		}
@@ -225,28 +231,38 @@ func (s *service) calculateGeneralBonusPerOrder(totalConversion float64) (genera
 	return generalBonusPerOrder
 }
 func (s *service) setPersonalBonusPerOrder(databaseStatistics []entity.DatabaseStatistic,
-	totalDepartmentConversion, generalBonusPerOrder, totalBonus float64) (personalBonusPerOrder float64) {
+	totalDepartmentConversion, generalBonusPerOrder, totalBonus float64, readWriter io.ReadWriter) (personalBonusPerOrder float64) {
 	if generalBonusPerOrder <= 0 {
-		fmt.Printf("Мои соболезнования, на премию не заработали. Конверсия составила %g\n",
-			totalDepartmentConversion*100)
+		_, _ = readWriter.Write([]byte(fmt.Sprintf("Мои соболезнования, на премию не заработали. Конверсия составила %g\n",
+			totalDepartmentConversion*100)))
 	} else {
-		fmt.Printf("Поздравляю, конверсии хватило на премию. Общая премия за заказ %g руб., суммарная премия %g руб. Сколько раздать на брата?\n",
-			generalBonusPerOrder, totalBonus)
+		_, _ = readWriter.Write([]byte(fmt.Sprintf("Поздравляю, конверсии хватило на премию. Общая премия за заказ %g руб., суммарная премия %g руб. Сколько раздать на брата?\n",
+			generalBonusPerOrder, totalBonus)))
 		for {
-			_, err := fmt.Scan(&personalBonusPerOrder)
-			if err != nil {
-				fmt.Printf("Размер персональной премии %g руб.\n", personalBonusPerOrder)
+			var err error
+			var floatFromReader float64
+
+			str := getSrtFromReader(readWriter)
+
+			if floatFromReader, err = strconv.ParseFloat(str, 64); err == nil {
+				personalBonusPerOrder = floatFromReader
+			} else {
+				_, _ = readWriter.Write([]byte(fmt.Sprintf("Размер персональной премии %g руб.\n", personalBonusPerOrder)))
 				break
 			}
 			var summaryOperatorsBonus float64
 
+			var answerString strings.Builder
+
 			for i := 0; i < len(databaseStatistics)-2; i++ {
 				operatorBonus := s.calculatePersonalBonus(databaseStatistics[i].Conversion, databaseStatistics[i].OrdersCount, personalBonusPerOrder)
 				summaryOperatorsBonus += operatorBonus
-				fmt.Println(databaseStatistics[i].Operator, operatorBonus)
+
+				answerString.WriteString(fmt.Sprintln(databaseStatistics[i].Operator, operatorBonus))
 			}
-			fmt.Println("Виктор", totalBonus-summaryOperatorsBonus)
-			fmt.Println("Годится или переиграть?")
+			answerString.WriteString(fmt.Sprintln("Виктор", totalBonus-summaryOperatorsBonus))
+			answerString.WriteString(fmt.Sprintln("Годится или переиграть?"))
+			_, _ = readWriter.Write([]byte(answerString.String()))
 		}
 	}
 	return personalBonusPerOrder
@@ -303,13 +319,15 @@ func (s *service) calculateDepartmentPricePerOrder(totalOrdersCount int, departm
 	}
 	return departmentPricePerOrder
 }
-func (s *service) getFloat64FromConsole(message string) float64 {
-	fmt.Println(message)
+func (s *service) getFloat64FromIO(readWriter io.ReadWriter, message string) float64 {
+	_, _ = readWriter.Write([]byte(message))
 	var floatFromConsole float64
-	_, err := fmt.Scan(&floatFromConsole)
+
+	floatFromConsole, err := strconv.ParseFloat(getSrtFromReader(readWriter), 64)
+
 	if err != nil {
 		log.Println(err)
-		floatFromConsole = s.getFloat64FromConsole(message)
+		floatFromConsole = s.getFloat64FromIO(readWriter, message)
 	}
 	return floatFromConsole
 }
@@ -375,4 +393,22 @@ func (s *service) calculateConversion(uniqCallsCount, orders int) (conversion fl
 		conversion = float64(orders) / float64(uniqCallsCount)
 	}
 	return conversion
+}
+
+func getSrtFromReader(reader io.Reader) string {
+	buf := make([]byte, 1024)
+	var err error
+	var n int
+	for {
+		n, err = reader.Read(buf)
+		if err == io.EOF {
+			err = nil
+			break
+		}
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+	}
+	return string(buf[:n])
 }

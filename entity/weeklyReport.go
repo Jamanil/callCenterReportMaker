@@ -84,6 +84,7 @@ func (r WeeklyReport) SaveAsXlsx(path string) error {
 		sheet.Cell(2, rowIndex).SetStyles(currencyEvenStyle)
 
 		sheet.Cell(3, rowIndex).SetValue(report.SummaryPayment)
+		//sheet.Cell(3, rowIndex).SetValue(fmt.Sprintf("=SUM(B%d:C%d)", rowIndex+1, rowIndex+1))
 		sheet.Cell(3, rowIndex).SetStyles(currencyEvenStyle)
 
 		sheet.Cell(4, rowIndex).SetValue(report.OrdersCount)

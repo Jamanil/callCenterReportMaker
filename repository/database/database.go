@@ -85,10 +85,12 @@ func (d database) GetHistory(frameWidthInDays int) ([]entity.HistoryRecord, erro
 
 func (d database) GetOrders(dateFrom, dateTo time.Time) ([]entity.Orders, error) {
 	//goland:noinspection SpellCheckingInspection
-	rows, err := d.db.Query(`SELECT orders.id, orders.date_add_, cities.name, users.fio  FROM orders
-    JOIN cities on cities.city_id = orders.city_id
-    LEFT JOIN users on users.id = orders.id_operator
-WHERE date_add_ BETWEEN ? AND ?;`, dateFrom, dateTo)
+	rows, err := d.db.Query(
+		`SELECT orders.id, orders.date_add_, cities.name, users.fio  FROM orders
+					JOIN cities on cities.city_id = orders.city_id
+    				LEFT JOIN users on users.id = orders.id_operator
+					WHERE date_add_ BETWEEN ? AND ? 
+					AND orders.status <> 5;`, dateFrom, dateTo)
 	if err != nil {
 		return nil, err
 	}
